@@ -1,12 +1,11 @@
-import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
-from sklearn.model_selection import train_test_split, GridSearchCV, cross_val_score
+from sklearn.model_selection import train_test_split, GridSearchCV
 from sklearn.preprocessing import LabelEncoder, StandardScaler
+from sklearn.pipeline import make_pipeline
 from sklearn.tree import DecisionTreeClassifier
 from sklearn.neighbors import KNeighborsClassifier
-from sklearn.metrics import accuracy_score, classification_report
-from sklearn.metrics import roc_curve, auc
+from sklearn.metrics import accuracy_score, classification_report, f1_score, roc_curve, auc
 
 # ==========================================
 # 0. LOAD AND PREPROCESS
@@ -32,100 +31,67 @@ le = LabelEncoder()
 y = le.fit_transform(df["Position"])
 
 # ==========================================
-# 1. SPLIT DATASET (Train, Test, Validation)
+# 1. SPLIT: 85% train+validation (used inside 5-fold CV), 15% held-out test
 # ==========================================
-# Using an 70 / 15 / 15 ratio
-X_train_val, X_test, y_train_val, y_test = train_test_split(X, y, test_size=0.15, random_state=42, stratify=y)
-X_train, X_val, y_train, y_val = train_test_split(X_train_val, y_train_val, test_size=0.1765, random_state=42, stratify=y_train_val)
-
-# Scale features based on training data
-scaler = StandardScaler()
-X_train_scaled = scaler.fit_transform(X_train)
-X_val_scaled = scaler.transform(X_val)
-X_test_scaled = scaler.transform(X_test)
-X_train_val_scaled = scaler.fit_transform(X_train_val) # For full Cross-Validation later
+X_train_val, X_test, y_train_val, y_test = train_test_split(
+    X, y, test_size=0.15, random_state=42, stratify=y
+)
 
 # ==========================================
-# 2. SELECT RELEVANT FEATURES
+# 2. TUNE BOTH MODELS ON THE SAME DATA WITH THE SAME CV
 # ==========================================
-# Features are preserved from Lab 3 configuration as assigned.
+dt_grid = GridSearchCV(
+    DecisionTreeClassifier(random_state=42),
+    {
+        'criterion': ['gini', 'entropy'],
+        'max_depth': [None, 3, 5, 10],
+        'min_samples_split': [2, 5, 10],
+        'min_samples_leaf': [1, 2, 4]
+    },
+    cv=5, scoring='f1_macro'
+)
+dt_grid.fit(X_train_val, y_train_val)  # trees do not need scaling
+best_dt = dt_grid.best_estimator_
+print("Best tree params:", dt_grid.best_params_)
+
+# k-NN: the scaler is inside the pipeline, so there is no leakage across folds
+knn_grid = GridSearchCV(
+    make_pipeline(StandardScaler(), KNeighborsClassifier()),
+    {'kneighborsclassifier__n_neighbors': [3, 5, 7, 9, 11, 15]},
+    cv=5, scoring='f1_macro'
+)
+knn_grid.fit(X_train_val, y_train_val)
+best_knn = knn_grid.best_estimator_
+print("Best k:", knn_grid.best_params_)
 
 # ==========================================
-# 3 & 4. DECISION TREE & HYPERPARAMETER TUNING
+# 3. CLASS BALANCE
 # ==========================================
-dt_base = DecisionTreeClassifier(random_state=42)
-
-# Define parameter options to fine-tune tree depth and node splitting rules
-param_grid = {
-    'criterion': ['gini', 'entropy'],
-    'max_depth': [None, 3, 5, 10],
-    'min_samples_split': [2, 5, 10],
-    'min_samples_leaf': [1, 2, 4]
-}
-# Tune using GridSearch on our split training/validation setup
-grid_search = GridSearchCV(dt_base, param_grid, cv=5, scoring='f1_macro')
-grid_search.fit(X_train_scaled, y_train)
-
-best_dt = grid_search.best_estimator_
-print(f"Optimal Hyperparameters: {grid_search.best_params_}\n")
-
-# ==========================================
-# 5. ANALYZE CLASS BALANCE
-# ==========================================
-print("--- Class Distribution Analysis ---")
+print("\n--- Class Distribution Analysis ---")
 print(df["Position"].value_counts(normalize=True))
 print("-" * 40)
 
 # ==========================================
-# 6. EVALUATE DESIGNATED METRICS
+# 4. TEST-SET EVALUATION OF THE DECISION TREE
 # ==========================================
-y_pred_dt = best_dt.predict(X_test_scaled)
+y_pred_dt = best_dt.predict(X_test)
 print(f"Decision Tree Accuracy: {accuracy_score(y_test, y_pred_dt):.2f}")
 print("Classification Report:")
 print(classification_report(le.inverse_transform(y_test), le.inverse_transform(y_pred_dt), zero_division=0))
 
-# 7. COMPARE KNN VS DECISION TREE USING F1-SCORE CROSS-VALIDATION
 # ==========================================
-
-knn_model = KNeighborsClassifier(n_neighbors=5)
-
-# Perform 5-fold cross-validation using macro F1-score
-knn_cv = cross_val_score(
-    knn_model,
-    X_train_val_scaled,
-    y_train_val,
-    cv=5,
-    scoring='f1_macro'
-)
-
-dt_cv = cross_val_score(
-    best_dt,
-    X_train_val_scaled,
-    y_train_val,
-    cv=5,
-    scoring='f1_macro'
-)
-
-print("\n--- KNN vs Decision Tree: F1-Score Cross-Validation ---")
-
-print("\nKNN F1-scores for each fold:")
-print(knn_cv)
-print(f"KNN Mean F1-score: {knn_cv.mean():.4f}")
-
-print("\nDecision Tree F1-scores for each fold:")
-print(dt_cv)
-print(f"Decision Tree Mean F1-score: {dt_cv.mean():.4f}")
-
-print("\n--- Final Comparison ---")
-
-if knn_cv.mean() > dt_cv.mean():
-    print("KNN performs better based on the average F1-score.")
-elif dt_cv.mean() > knn_cv.mean():
-    print("Decision Tree performs better based on the average F1-score.")
-else:
-    print("Both models have the same average F1-score.")
+# 5. KNN VS DECISION TREE
 # ==========================================
-# PART II: 1. ISOLATE POSITION INSTANCES 'FW' & 'MF'
+print("\n--- KNN vs Decision Tree (both tuned, same data, 5-fold CV, macro F1) ---")
+print(f"KNN CV macro F1:  {knn_grid.best_score_:.4f}")
+print(f"Tree CV macro F1: {dt_grid.best_score_:.4f}")
+
+print("\n--- Check on the held-out test set ---")
+print(f"KNN test macro F1:  {f1_score(y_test, best_knn.predict(X_test), average='macro'):.4f}")
+print(f"Tree test macro F1: {f1_score(y_test, y_pred_dt, average='macro'):.4f}")
+
+# ==========================================
+# PART II: BINARY CLASSIFICATION (FW vs MF)
 # ==========================================
 binary_df = df[df['Position'].isin(['FW', 'MF'])].copy()
 
@@ -135,32 +101,18 @@ print("==============================")
 print("Binary Target Balance Metrics:")
 print(binary_df['Position'].value_counts())
 
-# Construct absolute integer flags for the target index map
 binary_df['Target'] = binary_df['Position'].map({'MF': 0, 'FW': 1})
-
 X_bin = binary_df[features]
 y_bin = binary_df['Target']
 
-X_train_b, X_test_b, y_train_b, y_test_b = train_test_split(X_bin, y_bin, test_size=0.25, random_state=42, stratify=y_bin)
+X_train_b, X_test_b, y_train_b, y_test_b = train_test_split(
+    X_bin, y_bin, test_size=0.25, random_state=42, stratify=y_bin
+)
 
-# Scale subset dimensions
-bin_scaler = StandardScaler()
-X_train_b_scaled = bin_scaler.fit_transform(X_train_b)
-X_test_b_scaled = bin_scaler.transform(X_test_b)
-
-# ==========================================
-# PART II: 2. PERFORM RUNTIME CLASSIFICATION
-# ==========================================
-# Initializing using an optimized binary instance parameter configuration
 binary_clf = DecisionTreeClassifier(max_depth=4, random_state=42)
-binary_clf.fit(X_train_b_scaled, y_train_b)
+binary_clf.fit(X_train_b, y_train_b)
+y_probs = binary_clf.predict_proba(X_test_b)[:, 1]
 
-# Capture target continuous probability arrays
-y_probs = binary_clf.predict_proba(X_test_b_scaled)[:, 1]
-
-# ==========================================
-# PART II: 3. PLOT AND INTERPRET ROC CURVE
-# ==========================================
 fpr, tpr, thresholds = roc_curve(y_test_b, y_probs)
 roc_auc = auc(fpr, tpr)
 
@@ -172,11 +124,9 @@ plt.ylabel('True Positive Rate')
 plt.title('ROC Curve for FW vs MF Classification')
 plt.legend(loc="lower right")
 plt.grid(True, alpha=0.3)
+plt.savefig("roc_curve.png", dpi=150)
 plt.show()
 
-# ==========================================
-# PART II: 4. EVALUATE ALTERNATING THRESHOLD PLACEMENT
-# ==========================================
 print("\nTesting Model Predictions at Variant Confidence Thresholds:")
 for t in [0.3, 0.5, 0.7]:
     preds_at_t = (y_probs >= t).astype(int)
