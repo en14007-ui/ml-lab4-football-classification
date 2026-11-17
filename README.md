@@ -10,21 +10,22 @@ a decision tree with k-NN.
 ## Part I: Multi-class classification
 - Position labels include combined classes (e.g. FW,MF), giving 10 classes with strong
   imbalance: DF is ~35% of the data, FW,DF and DF,FW are ~1% each.
-- Stratified 70/15/15 train/validation/test split, features standardized (StandardScaler).
-- Decision tree tuned with GridSearchCV (5-fold, macro F1) over criterion, max_depth,
-  min_samples_split and min_samples_leaf. Best: gini, no depth limit,
-  min_samples_leaf=4, min_samples_split=10.
-- k-NN with k=5 (default value, not tuned).
-- Both models compared with 5-fold cross-validation on macro F1.
+- Stratified split: 85% train+validation (5-fold cross-validation), 15% held-out test set (72 players).
+- Both models tuned with GridSearchCV (5-fold, macro F1) on the same data:
+  - Decision tree: criterion, max_depth, min_samples_split, min_samples_leaf
+    (best: entropy, no depth limit, min_samples_leaf=1, min_samples_split=5)
+  - k-NN: k in {3, 5, 7, 9, 11, 15} (best: k = 7); features are standardized inside
+    a Pipeline, so there is no leakage between folds.
 
-| Model | Mean macro F1 (5-fold CV) |
-|-------|---------------------------|
-| k-NN (k=5) | 0.322 |
-| Decision tree (tuned) | 0.345 |
+| Model | CV macro F1 | Test macro F1 |
+|-------|-------------|---------------|
+| k-NN (k=7) | 0.324 | 0.332 |
+| Decision tree | 0.369 | 0.451 |
 
-Decision tree on the test set (72 players): accuracy 0.67, macro F1 0.40.
-Frequent classes are predicted well (DF F1 0.91, GK 0.80), while rare combined
-labels (FW,MF, MF,FW, MF,DF, FW,DF) get F1 = 0.
+The decision tree is better on both estimates. Its test accuracy is 0.67.
+Frequent classes are predicted well (DF F1 0.86, FW 0.82, GK 1.00), while rare
+combined labels are mostly missed (MF,DF and FW,DF: F1 = 0; MF,FW: 0.33), which keeps
+macro F1 low.
 
 ## Part II: Binary classification (FW vs MF)
 - Kept only players labeled FW or MF: 177 players (100 MF, 77 FW).
