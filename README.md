@@ -28,9 +28,20 @@ labels (FW,MF, MF,FW, MF,DF, FW,DF) get F1 = 0.
 
 ## Part II: Binary classification (FW vs MF)
 - Kept only players labeled FW or MF: 177 players (100 MF, 77 FW).
-- Stratified 75/25 split, decision tree with max_depth=4.
+- Stratified 75/25 split (45 test players), decision tree with max_depth=4.
 - ROC curve: AUC = 0.75.
-- Evaluated classification thresholds 0.3, 0.5 and 0.7: [add your results here]
+- Evaluated thresholds 0.3, 0.5 and 0.7 on the predicted FW probability:
+
+| Threshold | FW precision | FW recall | FW F1 | Accuracy |
+|-----------|--------------|-----------|-------|----------|
+| 0.3 | 0.61 | 0.85 | 0.71 | 0.69 |
+| 0.5 | 0.65 | 0.65 | 0.65 | 0.69 |
+| 0.7 | 0.65 | 0.65 | 0.65 | 0.69 |
+
+Lowering the threshold to 0.3 finds more forwards (recall 0.85) at the cost of more
+false positives (precision 0.61), so it fits a task where missing a forward is worse
+than a false alarm. Thresholds 0.5 and 0.7 give identical results because a shallow
+decision tree outputs only a few distinct probability values.
 
 ## Observations and limitations
 - The difference between the models (0.345 vs 0.322) is small compared to the spread
